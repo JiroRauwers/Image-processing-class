@@ -1,87 +1,98 @@
+pub mod gray_images;
+
+use image::{Rgba, ImageBuffer};
+
+use std::{fs, collections::HashSet, vec};
+
+#[allow(unused_imports)]
+use gray_images::gray_max_color_channel;
+
 // use std::io::Cursor; // not going to use now
-use image::{GenericImageView, ImageBuffer, Luma, Rgb};
+
+#[allow(unused)]
+const RED: Rgba<u8> = Rgba([255 as u8,0 as u8,0 as u8,255 as u8]);
+#[allow(unused)]
+const TRANSPARENT: Rgba<u8> = Rgba([0 as u8,0 as u8,0 as u8,0 as u8]);
+#[allow(unused)]
+const WHITE: Rgba<u8> = Rgba([255 as u8,255 as u8,255 as u8,255 as u8]);
 
 fn main() {
-    let path = "src/image.tiff";
-    // let SavePath = "src/Generated/";
+    // let base_imgae_path = "src/image.tiff";
+    let save_path = "src/Generated/";
 
-    image::open(path)
-    .unwrap()
-    .save( "src/base.png")
-    .unwrap();
+    
+    fs::create_dir_all(save_path).unwrap();
 
-
-    simple_gray(path);
-    pixel_b_pixel_gray(path);
-    gray_max_color_channel(path, 2);
-    max_color_channel(path, 4);
+    problem_lab();
 }
 
-fn simple_gray(path: &str) {
-    let img = image::open(path).unwrap();
- img.into_luma8().save("src/simple_gray.png").unwrap();
-}
-fn pixel_b_pixel_gray(path: &str) {
-    let img = image::open(path)
-        .unwrap();
-    let mut output = ImageBuffer::new(img.width(), img.height());
-    for (x, y, p) in img.pixels() {
-        let r = p[0] as f32;
-        let g = p[1] as f32;
-        let b = p[2] as f32;
 
-        let gray = (0.29 * r + 0.59 * g + 0.11 * b) as u8;
 
-        output.put_pixel(x, y, image::Luma([gray]));
-    }
-    output.save("src/pixel_b_pixel_gray.png")
-        .expect("Saving failed");
-}
+fn problem_lab() {
+    let img = image::open("src/testing.png").unwrap().to_luma8();
 
-// convert image to gray in a given a scale of colorsuse image::{GenericImageView, ImageBuffer, Luma};
-
-fn gray_max_color_channel(input_path: &str, max_colors: u8) {
-    let img = image::open(input_path).unwrap();
     let mut output = ImageBuffer::new(img.width(), img.height());
 
-    // Calculate the step size for quantization
-    let step_size = (256.0 / max_colors as f32).ceil() as u8;
+    let mut black_pixels = 0;
 
-    for (x, y, p) in img.pixels() {
-        let r = p[0] as f32;
-        let g = p[1] as f32;
-        let b = p[2] as f32;
+    let mut group_pixels:Vec<HashSet<(u32, u32)>> = Vec::new();
 
-        let gray = (0.29 * r + 0.59 * g + 0.11 * b).clamp(0.0, 255.0) as u8;
+    for (x, y, p) in img.enumerate_pixels() {
+        let scale = p[0];
 
-        let quantized_gray = (gray as f32 / step_size as f32).floor() as u8 * step_size;
+        if scale > 200 {
+            output.put_pixel(x, y, WHITE);
+            continue;
+        };
+        
+        black_pixels += 1;
 
-        output.put_pixel(x, y, Luma([quantized_gray]));
-        // output.put_pixel(x, y, Rgb([quantized_r, quantized_g, quantized_b]));
+        // get adjacent pixels
+        let top = (x, (y.wrapping_sub(1)) % img.height());
+        let bottom = (x, (y.wrapping_add(1)) % img.height());
+        let left = ((x.wrapping_sub(1)) % img.width(), y);
+        let right = ((x.wrapping_add(1)) % img.width(), y);
+        let self_pixel = (x, y);
+
+        let mut new_group: HashSet<(u32, u32)> = HashSet::new();
+
+        for (x, y) in &vec![
+            top, bottom, left, right, self_pixel
+        ] {
+            if img.get_pixel(*x, *y)[0] < 200 {
+                new_group.insert((*x,*y));
+            }
+        }
+        // Find the index of the first intersecting group
+        let intersecting_index = group_pixels.iter().position(|existing_group| {
+            existing_group.intersection(&new_group).count() > 0
+        });
+
+        if let Some(index) = intersecting_index {
+            group_pixels[index].extend(new_group);
+            continue;
+        } 
+        group_pixels.push(new_group);
+
     }
 
-    output.save("src/gray_max_color_channel.png").unwrap();
-}
+    output.save(format!("{}{}testing.png","src/Generated/",2)).unwrap();
+    println!("Black pixels: {}", black_pixels);
 
-fn max_color_channel(input_path: &str, max_colors: u8) {
-    let img = image::open(input_path).unwrap();
-    let mut output = ImageBuffer::new(img.width(), img.height());
-
-    // Calculate the step size for quantization
-    let step_size = (256.0 / max_colors as f32).ceil() as u8;
-
-    for (x, y, p) in img.pixels() {
-        let r = p[0] as f32;
-        let g = p[1] as f32;
-        let b = p[2] as f32;
-       
-        let quantized_r = (r / step_size as f32).floor() as u8 * step_size;
-        let quantized_g = (g / step_size as f32).floor() as u8 * step_size;
-        let quantized_b = (b / step_size as f32).floor() as u8 * step_size;
-
-        output.put_pixel(x, y, Rgb([quantized_r, quantized_g, quantized_b]));
-   
+    for group in &group_pixels {
+        println!("Group:");
+        for &(x, y) in group {
+            println!("({}, {})", x, y);
+        }
     }
 
-    output.save("src/max_color_channel.png").unwrap();
 }
+
+
+// let top = get_pixel_scale(img.get_pixel(x, (y.wrapping_sub(1)) % img.height()));
+// let bottom = get_pixel_scale(img.get_pixel(x, (y.wrapping_add(1)) % img.height()));
+// let left = get_pixel_scale(img.get_pixel((x.wrapping_sub(1)) % img.width(), y));
+// let right = get_pixel_scale(img.get_pixel((x.wrapping_add(1)) % img.width(), y));
+
+// let adjacent_pixels = vec![top, bottom, left, right].iter()
+//     .filter(|&pixel| pixel < &200 ).cloned().collect::<Vec<_>>();
